@@ -6,7 +6,11 @@ from typing import Generic, List
 from typing_extensions import TypeVar
 
 from mashumaro import DataClassDictMixin
-from mashumaro.types import GenericSerializableType
+from mashumaro.types import (
+    GenericSerializableType,
+    SerializableType,
+    SerializationStrategy,
+)
 
 T = TypeVar("T")
 
@@ -93,6 +97,39 @@ class Boxed(Generic[T], GenericSerializableType):
 type Nested[T] = T | Boxed[Nested[tuple[str, T]]]
 
 
+# --- PEP 695 style serialization strategy and serializable type ---
+
+
+@dataclass(frozen=True, order=True)
+class Leaf(DataClassDictMixin):
+    v: int
+
+
+class PEP695GenericSetSortedSerializationStrategy[T2](SerializationStrategy):
+    def serialize(self, value: set[T2]) -> list[T2]:
+        return sorted(value)
+
+    def deserialize(self, value: list[T2]) -> set[T2]:
+        return set(value)
+
+
+class PEP695GenericSerializableList[T](SerializableType, use_annotations=True):
+    def __init__(self, value: list[T]):
+        self.value = value
+
+    def __eq__(self, other):
+        return isinstance(other, type(self)) and self.value == other.value
+
+    def _serialize(self) -> list[T]:
+        return self.value
+
+    @classmethod
+    def _deserialize(
+        cls, value: list[T]
+    ) -> "PEP695GenericSerializableList[T]":
+        return cls(value)
+
+
 # --- Dataclasses using these types ---
 
 
@@ -114,3 +151,18 @@ class DataClassWithDirectRecursiveAlias(DataClassDictMixin):
 @dataclass
 class DataClassWithRecursiveGenericAlias(DataClassDictMixin):
     x: Nested[int]
+
+
+@dataclass
+class DataClassWithPEP695SerializationStrategy(DataClassDictMixin):
+    x: set[Leaf]
+
+    class Config:
+        serialization_strategy = {
+            set: PEP695GenericSetSortedSerializationStrategy()
+        }
+
+
+@dataclass
+class DataClassWithPEP695SerializableType(DataClassDictMixin):
+    x: PEP695GenericSerializableList[str]
